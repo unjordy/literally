@@ -1,7 +1,9 @@
 #lang info
 (define collection "literally")
 (define deps '("base"
-               "rackunit-lib"))
+               "rackunit-lib"
+               "scribble-lib"
+               "syntax-color"))
 (define build-deps '("scribble-lib" "racket-doc"))
 (define scribblings '(("scribblings/literally.scrbl" ())))
 (define pkg-desc "Description Here")
