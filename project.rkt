@@ -50,13 +50,13 @@
     (when print-output
       (printf "\nDone."))))
 
-(define (project-url path-str)
+(define (project-url path-str port)
   (let ([p-url (string->url path-str)])
     (struct-copy url
                  p-url
                  [scheme "http"]
                  [host "localhost"]
-                 [port 8000])))
+                 [port port])))
 
 (define route-map (make-parameter #hash()))
 
@@ -98,9 +98,14 @@
                                empty
                                (list (string->bytes/utf-8 "Not found")))])))]))
 
-(define (make-start-server host-map)
-  (λ () (let ([urls (map (λ (hm) (project-url (car hm)))
-                         host-map)])
+(define (make-start-server host-map port visibility)
+  (λ () (let ([urls (map (λ (hm) (project-url (car hm) port))
+                         host-map)]
+              [listen-ip (cond
+                           [(eq? visibility 'local)
+                            "127.0.0.1"]
+                           [(eq? visibility 'global)
+                            #f])])
           (for ([url urls])
             (printf "Hosting ~a\n"
                     (url->string url)))
@@ -108,11 +113,17 @@
           (parameterize ([route-map (make-hash host-map)])
             (serve/servlet doc-dispatch
                            #:servlet-regexp #rx""
+                           #:port port
+                           #:listen-ip listen-ip
                            #:quit? #f
                            #:launch-browser? #f)))))
 
 (define-syntax (|project builder| stx)
-  (define (build-project exprs [source-map #hash()] [output-dir 'public])
+  (define (build-project exprs
+                         [source-map #hash()]
+                         [output-dir 'public]
+                         [port 8000]
+                         [visibility 'local])
     (cond
       [(null? exprs)
        #`(begin
@@ -134,7 +145,7 @@
                                       (string->path
                                        (string-append i ".rkt")))))))                
            (define build-all (make-build-all build-map))
-           (define start-server (make-start-server host-map))
+           (define start-server (make-start-server host-map #,port '#,visibility))
            (provide output-dir build-map host-map build-all start-server)
            (module* configure-runtime #f
                 (start-server)))]
@@ -143,6 +154,20 @@
          [(eq? (syntax-e (car exprs)) '#:output)
           (build-project (cddr exprs)
                          source-map
+                         (syntax-e (cadr exprs))
+                         port
+                         visibility)]
+         [(eq? (syntax-e (car exprs)) '#:port)
+          (build-project (cddr exprs)
+                         source-map
+                         output-dir
+                         (syntax-e (cadr exprs))
+                         visibility)]
+         [(eq? (syntax-e (car exprs)) '#:visibility)
+          (build-project (cddr exprs)
+                         source-map
+                         output-dir
+                         port
                          (syntax-e (cadr exprs)))]
          [else (raise-syntax-error #f
                                    "Invalid configuration declaration"
@@ -153,7 +178,9 @@
                       (dict-set source-map
                                 (symbol->string (syntax-e (cadr exprs)))
                                 (syntax->input-string (car exprs)))
-                      output-dir)]
+                      output-dir
+                      port
+                      visibility)]
       [else (raise-syntax-error #f
                                 "You gave me a declaration I don't understand"
                                 (car exprs))]))
